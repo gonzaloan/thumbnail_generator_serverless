@@ -86,3 +86,38 @@ def s3_save_thumbnail_url_to_dynamo(url_path, img_size):
     )
 
     return {"statusCode": 200, "body": json.dumps(response)}
+
+def s3_get_thumbnail(event, context):
+    table = dynamodb.Table(dbtable)
+    response = table.get_item(Key={'id': event['pathParameters']['id']})
+    item = response.get('Item', {})
+    return {"statusCode": 200, "body": json.dumps(item),
+            "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"},
+            "isBase64Encoded": False}
+
+def s3_delete_thumbnail(event, context):
+    item_id = event['pathParameters']['id']
+    table = dynamodb.Table(dbtable)
+    try:
+        response = table.delete_item(Key={'id': item_id})
+        print(response)
+        if response['ResponseMetadata']['HTTPStatusCode'] == 200:
+            return {"statusCode": 200, "body": json.dumps("Thumbnail deleted successfully")}
+         
+        return {"statusCode": 500, "body": json.dumps("Internal server error")}
+    except KeyError as e:
+        print(f"Error parsing event: {e}")
+        return {"statusCode": 400, "body": json.dumps("Invalid event format")}
+
+    
+def s3_get_thumbnails_urls(event, context):
+    table = dynamodb.Table(dbtable)
+    response = table.scan()
+    data = response['Items']
+
+    while 'LastEvaluatedKey' in response:
+        response = table.scan(ExclusiveStartKey=response['LastEvaluatedKey'])
+        data.extend(response['Items'])
+
+    return {"statusCode": 200, "body": json.dumps(data)}
+

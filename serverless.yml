@@ -21,7 +21,14 @@ provider:
       statements:
         - Effect: Allow
           Action:
-            - s3:*
+            - s3:ListBucket
+            - s3:GetBucketLocation
+            - s3:CreateBucket
+            - s3:DeleteBucket
+            - s3:PutBucketPolicy
+            - s3:PutObject
+            - s3:GetObject
+            - s3:DeleteObject
           Resource: '*'
         - Effect: Allow
           Action:
@@ -36,32 +43,56 @@ provider:
 custom:
   bucket: gonmunoz-thumbnails
   dynamoTable: img-url-table
+  layerArn: arn:aws:lambda:us-east-1:770693421928:layer:Klayers-p38-Pillow:10
   pythonRequirements:
     dockerizePip: true
+  apiGatewayAccountRole:
+    Type: "Custom::ApiGatewayAccountRole"
+    Properties:
+      ServiceToken: !GetAtt ApiGatewayAccountRole.Arn
 
 functions:
   s3_thumbnail_generator:
     handler: handler.s3_thumbnail_generator
+    layers:
+      - ${self:custom.layerArn}
     events:
       - s3:
           bucket: ${self:custom.bucket}
           event: s3:ObjectCreated:*
           rules:
             - suffix: .png
+  list:
+    handler: handler.s3_get_thumbnails_urls
+    layers:
+      - ${self:custom.layerArn}
+    events:
+      - http:
+          path: images
+          method: get
+          cors: true
+  get:
+    handler: handler.s3_get_thumbnail
+    layers:
+      - ${self:custom.layerArn}
+    events:
+      - http:
+          path: images/{id}
+          method: get
+          cors: true
+
+  delete:
+    handler: handler.s3_delete_thumbnail
+    layers:
+      - ${self:custom.layerArn}
+    events:
+      - http:
+          path: images/{id}
+          method: delete
+          cors: true
 
 resources:
   Resources:
-    S3BucketPolicy:
-      Type: AWS::S3::BucketPolicy
-      Properties:
-        Bucket: ${self:custom.bucket}
-        PolicyDocument:
-          Version: '2012-10-17'
-          Statement:
-            - Effect: Allow
-              Principal: "*"
-              Action: "s3:GetObject"
-              Resource: "arn:aws:s3:::${self:custom.bucket}/*"
     DynamoDbTable:
       Type: 'AWS::DynamoDB::Table'
       Properties:
@@ -75,6 +106,28 @@ resources:
         ProvisionedThroughput:
           ReadCapacityUnits: 1
           WriteCapacityUnits: 1
+    ApiGatewayAccountRole:
+      Type: "AWS::IAM::Role"
+      Properties:
+        RoleName: serverlessApiGatewayCloudWatchRole
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: "Allow"
+              Principal:
+                Service: "apigateway.amazonaws.com"
+              Action: "sts:AssumeRole"
+        Policies:
+          - PolicyName: ApiGatewayCloudWatchLogsPolicy
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Effect: "Allow"
+                  Action:
+                    - "logs:CreateLogGroup"
+                    - "logs:CreateLogStream"
+                    - "logs:PutLogEvents"
+                  Resource: "*"
 
 plugins:
   - serverless-python-requirements
